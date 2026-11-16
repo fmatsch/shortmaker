@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShortMaker — aus langen Videos werden Shorts</title>
+<meta name="description" content="Native Mac-App: aus 16:9-Videos bildgenau 9:16-Shorts schneiden, Personen verfolgen, hochskalieren, Untertitel mit Whisper und Titel im Social-Media-Stil – alles lokal.">
+<link rel="icon" href="assets/icon.png">
+<style>
+  :root { --bg:#120d10; --card:#1d1519; --border:#35262c; --text:#f7eff1; --dim:#b3a2a8; --accent:#ff5c6c; --accent2:#ff9a2e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background: radial-gradient(ellipse 1200px 600px at 50% -10%, #4a1c2b 0%, var(--bg) 55%); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  a { color:var(--accent); text-decoration:none; } a:hover { text-decoration:underline; }
+  .wrap { max-width:980px; margin:0 auto; padding:0 24px; }
+  header.hero { text-align:center; padding:96px 24px 56px; }
+  .hero-icon { width:120px; height:120px; margin-bottom:28px; filter:drop-shadow(0 20px 40px rgba(255,92,108,.35)); }
+  h1 { font-size:clamp(2.2rem,5vw,3.4rem); margin:0 0 14px; letter-spacing:-.02em; }
+  .tagline { font-size:1.2rem; color:var(--dim); max-width:660px; margin:0 auto 34px; }
+  .cta-row { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
+  .btn { display:inline-flex; padding:13px 24px; border-radius:12px; font-weight:600; transition:transform .15s; }
+  .btn:hover { text-decoration:none; transform:translateY(-1px); }
+  .btn-primary { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#2a0a10; box-shadow:0 8px 20px -6px rgba(255,92,108,.6); }
+  .btn-secondary { background:var(--card); color:var(--text); border:1px solid var(--border); }
+  .note { margin:18px auto 0; font-size:.84rem; color:var(--dim); max-width:560px; }
+  section { padding:52px 0; }
+  h2 { font-size:1.7rem; margin:0 0 8px; letter-spacing:-.01em; }
+  .lead { color:var(--dim); margin:0 0 32px; max-width:660px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:22px; }
+  .card .ic { font-size:1.5rem; margin-bottom:10px; }
+  .card h3 { margin:0 0 6px; font-size:1.02rem; } .card p { margin:0; font-size:.92rem; color:var(--dim); }
+  .steps { display:grid; gap:40px; }
+  .step .num { display:inline-grid; place-items:center; width:30px; height:30px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#2a0a10; font-weight:700; margin-right:10px; }
+  .step h3 { margin:0 0 6px; font-size:1.25rem; display:flex; align-items:center; }
+  .step p { margin:0 0 16px; color:var(--dim); max-width:700px; }
+  .step img { width:100%; height:auto; display:block; border-radius:14px; border:1px solid var(--border); box-shadow:0 24px 48px -24px rgba(0,0,0,.6); }
+  .code { background:#0e0a0c; border:1px solid var(--border); border-radius:12px; padding:18px 20px; font-family:ui-monospace,"SF Mono",Menlo,monospace; font-size:.88rem; color:#ead9de; overflow-x:auto; white-space:pre; line-height:1.7; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; } td,th { text-align:left; padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; } th { color:var(--dim); font-weight:500; }
+  kbd { background:var(--card); border:1px solid var(--border); border-radius:6px; padding:1px 7px; font-family:inherit; font-size:.9em; }
+  footer { border-top:1px solid var(--border); padding:36px 0 56px; text-align:center; color:var(--dim); font-size:.88rem; } footer a { color:var(--dim); }
+</style>
+</head>
+<body>
+<header class="hero">
+  <img class="hero-icon" src="assets/icon.png" alt="ShortMaker App-Icon">
+  <h1>ShortMaker</h1>
+  <p class="tagline">Aus langen 16:9-Videos werden 9:16-Shorts: Stellen bildgenau auswählen, Ausschnitt festlegen oder Personen verfolgen lassen, Untertitel und Titel dazu – fertig.</p>
+  <div class="cta-row">
+    <a class="btn btn-primary" href="https://github.com/fmatsch/shortmaker/releases/latest/download/ShortMaker-macOS.zip">⇩ Download für macOS</a>
+    <a class="btn btn-secondary" href="https://github.com/fmatsch/shortmaker">Quellcode auf GitHub</a>
+  </div>
+  <p class="note">Apple Silicon, macOS 14 oder neuer. Die App ist nicht notarisiert – beim ersten Start Rechtsklick → „Öffnen“.</p>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2>Drei Schritte zum Short</h2>
+    <p class="lead">Jeder Schritt hat eine eigene Ansicht. Du kannst jederzeit zurück und etwas ändern.</p>
+    <div class="steps">
+      <div class="step">
+        <h3><span class="num">1</span>Auswahl</h3>
+        <p>Video laden, zur Stelle fahren, mit <kbd>I</kbd> und <kbd>O</kbd> Anfang und Ende setzen, mit <kbd>↩</kbd> übernehmen. Die Pfeiltasten und das Feinrad fahren Bild für Bild; Anfang und Ende jedes Clips lassen sich nachträglich bildweise nachstellen.</p>
+        <img src="assets/screenshot-auswahl.png" alt="Schritt 1: Bereiche im 16:9-Video markieren">
+      </div>
+      <div class="step">
+        <h3><span class="num">2</span>Format</h3>
+        <p>Die Clips stehen als 9:16-Zeitleiste hintereinander. Für jeden Clip legst du fest, was zu sehen ist: Ausschnitt von Hand, automatische Verfolgung der Hauptperson oder das ganze Bild mit unscharfem Hintergrund. Der Ausschnitt wird auf 1080 × 1920 hochskaliert.</p>
+        <img src="assets/screenshot-format.png" alt="Schritt 2: 9:16-Zeitleiste und Ausschnitt">
+      </div>
+      <div class="step">
+        <h3><span class="num">3</span>Text</h3>
+        <p>Whisper erzeugt die Untertitel automatisch – mit Wort-Zeitstempeln, sodass das gerade gesprochene Wort hervorgehoben wird. Dazu eigene Titel in vier Stilen, frei im Bild platzierbar.</p>
+        <img src="assets/screenshot-text.png" alt="Schritt 3: Untertitel und Titel">
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Was drin ist</h2>
+    <div class="grid">
+      <div class="card"><div class="ic">✂️</div><h3>Bildgenauer Schnitt</h3><p>Clips werden in ganzen Bildern gespeichert und exakt so zusammengesetzt – kein Verrutschen um ein Bild.</p></div>
+      <div class="card"><div class="ic">🧍</div><h3>Personen verfolgen</h3><p>Apple Vision erkennt Gesichter und Körper; der Ausschnitt folgt der Hauptperson mit geglätteter Kamerafahrt.</p></div>
+      <div class="card"><div class="ic">🔍</div><h3>Hochskalierung</h3><p>Vorschau mit Lanczos und Nachschärfen; beim Export auf Wunsch Real-ESRGAN für sichtbar mehr Detail.</p></div>
+      <div class="card"><div class="ic">💬</div><h3>Untertitel mit Whisper</h3><p>Large-v3 turbo, lokal über Core ML. Wenige Wörter je Einblendung, aktuelles Wort farbig, Text korrigierbar, SRT-Export.</p></div>
+      <div class="card"><div class="ic">🔠</div><h3>Titel im Social-Media-Stil</h3><p>Kontur, Kasten, Leuchten oder Schatten – Farbe, Größe, Position und Einblendzeit frei wählbar.</p></div>
+      <div class="card"><div class="ic">🖼️</div><h3>Ganzes Bild</h3><p>Wenn nichts abgeschnitten werden darf: das 16:9-Bild mittig, dahinter dasselbe Bild unscharf als Füllung.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Lokal</h2>
+    <p class="lead">Dein Video verlässt den Mac nicht. Nur das Whisper-Modell wird beim ersten Gebrauch einmalig geladen.</p>
+    <table>
+      <tr><th>Aufgabe</th><th>Modell</th><th>Hinweis</th></tr>
+      <tr><td>Untertitel</td><td><a href="https://github.com/openai/whisper">Whisper</a> large-v3 turbo über <a href="https://github.com/argmaxinc/WhisperKit">WhisperKit</a></td><td>ca. 630 MB, einmaliger Download</td></tr>
+      <tr><td>Hochskalieren</td><td><a href="https://github.com/xinntao/Real-ESRGAN">Real-ESRGAN</a> x4v3 (Core ML)</td><td>in der App enthalten, nur beim Export</td></tr>
+      <tr><td>Personen verfolgen</td><td>Apple Vision</td><td>Teil von macOS</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Selbst bauen</h2>
+    <p class="lead">Es genügen die Command Line Tools – Xcode ist nicht nötig.</p>
+    <div class="code">git clone https://github.com/fmatsch/shortmaker.git
+cd shortmaker
+Scripts/build_app.sh
+open build/ShortMaker.app</div>
+  </section>
+</main>
+
+<footer>
+  <a href="https://github.com/fmatsch/shortmaker">GitHub</a> · MIT-Lizenz · Modelle: siehe <a href="https://github.com/fmatsch/shortmaker/blob/main/Models/NOTICE.md">NOTICE</a> · <a href="https://fmatsch.ist">fmatsch.ist</a>
+</footer>
+</body>
+</html>

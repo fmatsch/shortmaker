@@ -1,0 +1,57 @@
+# ShortMaker
+
+Native Mac-App, die aus langen 16:9-Videos kurze 9:16-Shorts macht – in drei Schritten:
+
+1. **Auswahl** – Video laden und bildgenau die Stellen markieren, die ins Short sollen (In/Out, bildweises Fahren, Feinrad).
+2. **Format** – die Clips stehen als 9:16-Zeitleiste hintereinander. Je Clip: Ausschnitt von Hand setzen, die Hauptperson verfolgen lassen (Apple Vision) oder das ganze Bild mit unscharfem Hintergrund zeigen. Der Ausschnitt wird auf 1080 × 1920 hochskaliert.
+3. **Text** – Untertitel automatisch mit Whisper erzeugen (lokal, mit Wort-Hervorhebung) und eigene Titel im Social-Media-Stil setzen.
+
+Danach Export als MP4 (H.264 oder HEVC), wahlweise mit KI-Hochskalierung (Real-ESRGAN).
+
+Seite: https://fmatsch.github.io/shortmaker/
+
+## Bedienung
+
+| Taste | Wirkung |
+| --- | --- |
+| Leertaste | Wiedergabe / Pause |
+| ← / → | ein Bild zurück / vor (mit ⇧: zehn Bilder) |
+| I / O | Anfang / Ende der Stelle auf das aktuelle Bild setzen |
+| ↩ | markierten Bereich als Clip übernehmen |
+
+In den Schritten 2 und 3 lässt sich das Bild bzw. der Text direkt in der Vorschau ziehen.
+
+## Voraussetzungen
+
+* Apple Silicon, macOS 14 oder neuer
+* Untertitel: beim ersten Gebrauch lädt die App das Whisper-Modell (large-v3 turbo, ca. 630 MB) von Hugging Face nach
+  `~/Library/Application Support/ShortMaker/Models`. Danach läuft alles ohne Internet. Beim allerersten Erkennen bereitet macOS das Modell
+  für die Neural Engine vor – das dauert einmalig einige Minuten.
+
+## Selbst bauen
+
+Es genügen die Command Line Tools, Xcode ist nicht nötig.
+
+```bash
+git clone https://github.com/fmatsch/shortmaker.git
+cd shortmaker
+Scripts/build_app.sh
+open build/ShortMaker.app
+```
+
+Bildkette ohne Oberfläche prüfen (Zeitleiste, Verfolgung, Titel, Export):
+
+```bash
+.build/release/ShortMaker --selftest video.mp4 ausgabeordner [ai] [whisper]
+```
+
+## Grenzen dieser Version
+
+* Ein Quellvideo je Projekt; Projekte werden noch nicht gespeichert.
+* Videos mit variabler Bildrate werden als konstante Bildrate behandelt.
+* Die Personenverfolgung folgt der größten erkannten Person; bei verdeckten Personen kann sie danebenliegen – dann den Ausschnitt von Hand setzen.
+* Die App ist nicht notarisiert: beim ersten Start Rechtsklick → „Öffnen“.
+
+## Lizenz
+
+MIT. Modelle: siehe [Models/NOTICE.md](Models/NOTICE.md).
