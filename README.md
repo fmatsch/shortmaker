@@ -1,10 +1,12 @@
 # ShortMaker
 
-Native Mac-App, die aus langen 16:9-Videos kurze 9:16-Shorts macht – in drei Schritten:
+Native Mac-App, die aus langen 16:9-Videos kurze 9:16-Shorts macht – in vier Schritten:
 
 1. **Auswahl** – Video laden und bildgenau die Stellen markieren, die ins Short sollen (In/Out, bildweises Fahren, Feinrad).
 2. **Format** – die Clips stehen als 9:16-Zeitleiste hintereinander. Je Clip: Ausschnitt von Hand setzen, die Hauptperson verfolgen lassen (Apple Vision) oder das ganze Bild mit unscharfem Hintergrund zeigen. Der Ausschnitt wird auf 1080 × 1920 hochskaliert.
 3. **Text** – Untertitel automatisch mit Whisper erzeugen (lokal, mit Wort-Hervorhebung) und eigene Titel im Social-Media-Stil setzen.
+
+4. **Vorschaubild** – aus demselben Material und im selben Stil ein Titelbild erstellen, als 9:16 für das Short oder 16:9 für das lange Video. Die App schlägt Bilder mit gut sichtbarem Gesicht vor; Wörter zwischen `*Sternchen*` erscheinen in der Akzentfarbe. Sichern als JPEG oder PNG.
 
 Danach Export als MP4 (H.264 oder HEVC), wahlweise mit KI-Hochskalierung (Real-ESRGAN).
 

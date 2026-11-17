@@ -34,10 +34,10 @@ final class RenderState: @unchecked Sendable {
 
 enum Renderer {
     /// Ausschnitt im Quellbild (Core-Image-Koordinaten, Ursprung unten links).
-    static func cropRect(sourceSize: CGSize, center: CGPoint, zoom: Double) -> CGRect {
+    static func cropRect(sourceSize: CGSize, center: CGPoint, zoom: Double, aspect: Double = ShortFormat.aspect) -> CGRect {
         let W = Double(sourceSize.width), H = Double(sourceSize.height)
-        var ch = H / max(1, zoom), cw = ch * ShortFormat.aspect
-        if cw > W { cw = W; ch = cw / ShortFormat.aspect }
+        var ch = H / max(1, zoom), cw = ch * aspect
+        if cw > W { cw = W; ch = cw / aspect }
         let cx = Double(center.x) * W, cy = (1 - Double(center.y)) * H
         let x0 = min(max(0, cx - cw / 2), W - cw), y0 = min(max(0, cy - ch / 2), H - ch)
         return CGRect(x: x0, y: y0, width: cw, height: ch)
@@ -102,7 +102,7 @@ enum Renderer {
         return out.cropped(to: canvas)
     }
 
-    private static func scaled(_ img: CIImage, to s: Double) -> CIImage {
+    static func scaled(_ img: CIImage, to s: Double) -> CIImage {
         guard abs(s - 1) > 0.001 else { return img }
         let f = CIFilter.lanczosScaleTransform()
         f.inputImage = img.clampedToExtent(); f.scale = Float(s); f.aspectRatio = 1
@@ -111,7 +111,7 @@ enum Renderer {
     }
 
     /// Ganzes Bild mittig, dahinter dasselbe Bild unscharf und abgedunkelt als Füllung.
-    private static func fit(_ src: CIImage, center: CGPoint, zoom: Double) -> CIImage {
+    static func fit(_ src: CIImage, center: CGPoint, zoom: Double) -> CIImage {
         let canvas = CGRect(origin: .zero, size: ShortFormat.size)
         let W = src.extent.width, H = src.extent.height
         let fill = ShortFormat.height / H
@@ -143,6 +143,8 @@ struct TextSpec: Hashable {
     var color: RGBA
     var highlight: NSRange?
     var highlightColor: RGBA
+    var accents: [NSRange] = []          // weitere Bereiche in der Hervorhebungsfarbe
+    var maxWidth = ShortFormat.width * 0.88
 }
 
 /// Zeichnet Titel/Untertitel im Social-Media-Stil mit Core Text und hält die Bilder im Zwischenspeicher.
@@ -178,12 +180,15 @@ final class TextRasterizer: @unchecked Sendable {
         if let r = spec.highlight, r.location + r.length <= fill.length {
             fill.addAttribute(.init(kCTForegroundColorAttributeName as String), value: spec.highlightColor.cg, range: r)
         }
+        for r in spec.accents where r.location + r.length <= fill.length {
+            fill.addAttribute(.init(kCTForegroundColorAttributeName as String), value: spec.highlightColor.cg, range: r)
+        }
         let strokeW = size * 0.16
         attrs[.init(kCTStrokeWidthAttributeName as String)] = strokeW / size * 100
         attrs[.init(kCTStrokeColorAttributeName as String)] = CGColor(gray: 0, alpha: 1)
         let stroke = NSAttributedString(string: spec.text, attributes: attrs)
 
-        let maxW = CGFloat(ShortFormat.width * 0.88)
+        let maxW = CGFloat(spec.maxWidth)
         let setter = CTFramesetterCreateWithAttributedString(fill)
         let fitSize = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(), nil, CGSize(width: maxW, height: 4000), nil)
         let pad = ceil(size * 0.7)

@@ -65,6 +65,18 @@ enum SelfTest {
             try await Exporter.export(composition: comp, frameDuration: fd, snapshot: snap, quality: args.contains("ai") ? .ai : .fast, hevc: false,
                                       to: out.appendingPathComponent("short.mp4")) { _ in }
             print("Export fertig in \(String(format: "%.1f", Date().timeIntervalSince(t0))) s")
+
+            let maker = ThumbnailMaker(asset: asset, frameDuration: fd)
+            for fmt in ThumbFormat.allCases {
+                var ts = ThumbnailSettings()
+                ts.format = fmt; ts.text = "So *einfach*\ngeht das"; ts.ai = args.contains("ai"); ts.tilt = fmt == .wide
+                let t1 = Date()
+                let cg = try await maker.render(clip: a, sourceFrame: a.start + a.frames / 2, settings: ts)
+                try ThumbnailMaker.write(cg, to: out.appendingPathComponent("thumb-\(fmt.rawValue).jpg"))
+                print("Vorschaubild \(fmt.rawValue): \(cg.width)×\(cg.height) in \(String(format: "%.2f", Date().timeIntervalSince(t1))) s")
+            }
+            let sug = await maker.suggest(clips: snap.clips.map { (start: $0.tlStart, clip: $0.clip) }, fps: fps, format: .short)
+            print("Vorschläge (Bilder der Zeitleiste): \(sug)")
             return 0
         } catch { print("FEHLER: \(error)"); return 1 }
     }

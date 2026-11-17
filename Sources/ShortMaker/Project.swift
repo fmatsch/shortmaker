@@ -43,6 +43,18 @@ final class Project: ObservableObject {
     @Published var whisperStatus = ""
     @Published var whisperAvailable = Transcriber.isAvailable
 
+    // Schritt 4 – Vorschaubild
+    @Published var thumb = ThumbnailSettings() { didSet { if thumb != oldValue { scheduleThumb() } } }
+    @Published var thumbImage: NSImage?
+    @Published var thumbBusy = false
+    @Published var thumbSuggestions: [ThumbSuggestion] = []
+    @Published var suggesting = false
+    @Published var thumbSaved: URL?
+    private var thumbMaker: ThumbnailMaker?
+    private var thumbInitialized = false
+    private var thumbTask: Task<Void, Never>?
+    private var suggestTask: Task<Void, Never>?
+
     // Export
     @Published var exportProgress: Double?
     @Published var exportedURL: URL?
@@ -72,6 +84,14 @@ final class Project: ObservableObject {
         })
         shortPlayer.actionAtItemEnd = .pause
         sourcePlayer.actionAtItemEnd = .pause
+        // Im Vorschaubild-Schritt bestimmt die Abspielposition das Bild
+        shortHead.$frame.removeDuplicates().sink { [weak self] f in
+            MainActor.assumeIsolated {
+                guard let self, self.step == .thumbnail, self.thumb.frame != f else { return }
+                self.thumb.frame = f
+            }
+        }
+        .store(in: &cancellables)
     }
 
     private func tick(_ player: AVPlayer?, _ head: Playhead?, _ t: CMTime) {
@@ -105,6 +125,7 @@ final class Project: ObservableObject {
                 gen.maximumSize = CGSize(width: 320, height: 320)
                 gen.requestedTimeToleranceBefore = .zero; gen.requestedTimeToleranceAfter = .zero
                 imageGenerator = gen
+                thumbMaker = ThumbnailMaker(asset: asset, frameDuration: frameDuration)
                 loading = false
                 await loadFilmstrip(asset)
             } catch {
@@ -123,6 +144,8 @@ final class Project: ObservableObject {
         markIn = nil; markOut = nil; selectedTitle = nil; subtitlesStale = false; exportedURL = nil
         sourceHead.frame = 0; shortHead.frame = 0
         step = .select
+        suggestTask?.cancel(); thumbTask?.cancel()
+        thumb = ThumbnailSettings(); thumbImage = nil; thumbSuggestions = []; thumbSaved = nil; thumbInitialized = false; thumbBusy = false
     }
 
     private func loadFilmstrip(_ asset: AVAsset) async {
@@ -208,6 +231,7 @@ final class Project: ObservableObject {
         }
         for c in clips where c.framing.mode == .track && !c.isTracked && trackTasks[c.id] == nil { startTracking(c) }
         pushState()
+        scheduleThumb()
     }
 
     // MARK: Schritt 2 – Short
@@ -216,6 +240,7 @@ final class Project: ObservableObject {
         guard step != old else { return }
         sourcePlayer.pause(); shortPlayer.pause()
         if old == .select { Task { await rebuildShort() } }
+        if step == .thumbnail { enterThumbnail() }
     }
 
     func rebuildShort() async {
@@ -320,6 +345,95 @@ final class Project: ObservableObject {
         selectedTitle = t.id
     }
 
+    // MARK: Schritt 4 – Vorschaubild
+
+    private func enterThumbnail() {
+        if !thumbInitialized {
+            thumbInitialized = true
+            var t = thumb
+            if let title = titles.first(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                t.text = title.text; t.style = title.style; t.color = title.color; t.uppercase = title.uppercase
+            } else { t.text = "Dein *Titel*" }
+            t.frame = min(shortHead.frame, max(0, shortFrames - 1))
+            thumb = t
+        } else {
+            thumb.frame = min(thumb.frame, max(0, shortFrames - 1))
+            seek(thumb.frame, on: .thumbnail)
+        }
+        scheduleThumb()
+    }
+
+    func applyTitleStyleToThumb() {
+        guard let t = titles.first else { return }
+        thumb.style = t.style; thumb.color = t.color; thumb.uppercase = t.uppercase
+    }
+
+    /// Clip und Quellbild zu einem Bild der Short-Zeitleiste.
+    private func thumbSource(_ k: Int) -> (clip: Clip, src: Int)? {
+        guard let i = clipIndex(atShortFrame: k) else { return nil }
+        let c = clips[i]
+        return (c, min(c.end - 1, c.start + max(0, k - shortStart(ofClip: i))))
+    }
+
+    func scheduleThumb() {
+        guard step == .thumbnail, let maker = thumbMaker, let r = thumbSource(thumb.frame) else { return }
+        thumbTask?.cancel()
+        let s = thumb
+        thumbBusy = true
+        thumbTask = Task {
+            try? await Task.sleep(nanoseconds: s.ai ? 120_000_000 : 30_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let cg = try await maker.render(clip: r.clip, sourceFrame: r.src, settings: s)
+                guard !Task.isCancelled else { return }
+                thumbImage = NSImage(cgImage: cg, size: .zero)
+            } catch {
+                if !Task.isCancelled { errorMessage = "Das Vorschaubild konnte nicht erzeugt werden: \(error.localizedDescription)" }
+            }
+            thumbBusy = false
+        }
+    }
+
+    func suggestThumbnails() {
+        guard let maker = thumbMaker else { return }
+        suggestTask?.cancel()
+        suggesting = true; thumbSuggestions = []
+        let list = snapshot.clips.map { (start: $0.tlStart, clip: $0.clip) }
+        var s = thumb
+        s.ai = false
+        let fps = fps
+        suggestTask = Task {
+            let frames = await maker.suggest(clips: list, fps: fps, format: s.format)
+            var out: [ThumbSuggestion] = []
+            for k in frames {
+                guard !Task.isCancelled, let r = thumbSource(k) else { break }
+                if let cg = try? await maker.render(clip: r.clip, sourceFrame: r.src, settings: s) {
+                    out.append(ThumbSuggestion(frame: k, image: NSImage(cgImage: cg, size: .zero)))
+                    thumbSuggestions = out
+                }
+            }
+            if !Task.isCancelled { suggesting = false }
+        }
+    }
+
+    func saveThumbnail() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.jpeg, .png]
+        panel.nameFieldStringValue = (url?.deletingPathExtension().lastPathComponent ?? "Short")
+            + (thumb.format == .short ? " – Vorschaubild.jpg" : " – Vorschaubild 16x9.jpg")
+        guard panel.runModal() == .OK, let dest = panel.url, let maker = thumbMaker, let r = thumbSource(thumb.frame) else { return }
+        let s = thumb
+        thumbBusy = true
+        Task {
+            do {
+                let cg = try await maker.render(clip: r.clip, sourceFrame: r.src, settings: s)
+                try ThumbnailMaker.write(cg, to: dest)
+                thumbSaved = dest
+            } catch { errorMessage = "Das Vorschaubild konnte nicht gesichert werden: \(error.localizedDescription)" }
+            thumbBusy = false
+        }
+    }
+
     // MARK: Export
 
     func export(to url: URL, quality: Exporter.Quality, hevc: Bool) {
@@ -362,7 +476,12 @@ final class Project: ObservableObject {
         guard target > 2 else { return }
         step = .text
         addTitle(); titles[0].text = "So geht\nShortMaker"
-        if whisperAvailable { generateSubtitles() }
+        if whisperAvailable && target == 3 { generateSubtitles() }
         seek(2 * s)
+        guard target > 3 else { return }
+        step = .thumbnail
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        seek(Int(1.5 * Double(s)))
+        suggestThumbnails()
     }
 }

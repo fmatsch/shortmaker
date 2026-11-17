@@ -10,9 +10,9 @@ enum ShortFormat {
 }
 
 enum Step: Int, CaseIterable {
-    case select, format, text
-    var title: String { ["Auswahl", "Format", "Text"][rawValue] }
-    var symbol: String { ["scissors", "rectangle.portrait", "captions.bubble"][rawValue] }
+    case select, format, text, thumbnail
+    var title: String { ["Auswahl", "Format", "Text", "Vorschaubild"][rawValue] }
+    var symbol: String { ["scissors", "rectangle.portrait", "captions.bubble", "photo"][rawValue] }
 }
 
 enum FramingMode: String, CaseIterable, Identifiable {

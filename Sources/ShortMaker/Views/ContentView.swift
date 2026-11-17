@@ -17,6 +17,7 @@ struct ContentView: View {
                 case .select: SelectStep(head: project.sourceHead)
                 case .format: FormatStep(head: project.shortHead)
                 case .text: TextStep(head: project.shortHead)
+                case .thumbnail: ThumbnailStep(head: project.shortHead)
                 }
             }
         }
@@ -42,7 +43,7 @@ struct ContentView: View {
             if event.modifierFlags.contains(.command) { return event }
             let shift = event.modifierFlags.contains(.shift)
             switch event.keyCode {
-            case 49: project.togglePlay()
+            case 49 where project.step != .thumbnail: project.togglePlay()
             case 123: project.stepFrames(shift ? -10 : -1)
             case 124: project.stepFrames(shift ? 10 : 1)
             case 34 where project.step == .select: project.setIn()
@@ -79,7 +80,7 @@ struct StepBar: View {
         HStack(spacing: 10) {
             Button { openVideoPanel(project) } label: { Label(project.url?.lastPathComponent ?? "", systemImage: "film") }
                 .buttonStyle(.plain).foregroundStyle(.secondary).lineLimit(1).help("Anderes Video öffnen")
-                .frame(maxWidth: 260, alignment: .leading)
+                .frame(maxWidth: 200, alignment: .leading)
             Spacer()
             ForEach(Step.allCases, id: \.self) { s in
                 let enabled = s == .select || !project.clips.isEmpty
@@ -96,7 +97,7 @@ struct StepBar: View {
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain).disabled(!enabled).opacity(enabled ? 1 : 0.4)
-                if s != .text { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
+                if s != Step.allCases.last { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary) }
             }
             Spacer()
             Text(project.clips.isEmpty ? "" : "Short: \(Timecode.short(seconds: Double(project.shortFrames) / project.fps))")
