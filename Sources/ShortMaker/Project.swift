@@ -55,6 +55,18 @@ final class Project: ObservableObject {
     private var thumbTask: Task<Void, Never>?
     private var suggestTask: Task<Void, Never>?
 
+    // Schnitte
+    @Published var autoSplit = UserDefaults.standard.object(forKey: "autoSplit") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(autoSplit, forKey: "autoSplit") }
+    }
+    @Published var cutProgress: Double?
+    @Published var cutMessage = ""
+
+    // Übergabe an YT Producer
+    @Published var handoffFolder: URL?
+    @Published var showExportSheet = false
+    var exportToProducerFirst = false
+
     // Export
     @Published var exportProgress: Double?
     @Published var exportedURL: URL?
@@ -141,7 +153,7 @@ final class Project: ObservableObject {
         trackTasks.values.forEach { $0.cancel() }; trackTasks = [:]
         composition = nil
         clips = []; titles = []; words = []; cues = []; thumbs = [:]; filmstrip = []; tracking = [:]
-        markIn = nil; markOut = nil; selectedTitle = nil; subtitlesStale = false; exportedURL = nil
+        markIn = nil; markOut = nil; selectedTitle = nil; subtitlesStale = false; exportedURL = nil; handoffFolder = nil; cutMessage = ""
         sourceHead.frame = 0; shortHead.frame = 0
         step = .select
         suggestTask?.cancel(); thumbTask?.cancel()
@@ -212,8 +224,81 @@ final class Project: ObservableObject {
 
     func addClip() {
         guard let i = markIn, let o = markOut, o > i else { return }
-        clips.append(Clip(start: i, end: o))
         markIn = nil; markOut = nil
+        let clip = Clip(start: i, end: o)
+        guard autoSplit, let asset else { clips.append(clip); return }
+        // Bereich an Bildschnitten in einzelne Einstellungen teilen – jede bekommt ihren eigenen Ausschnitt
+        cutProgress = 0
+        let fd = frameDuration
+        Task {
+            let cuts = (try? await CutDetector.detect(asset: asset, start: i, frames: o - i, frameDuration: fd) { p in
+                Task { @MainActor [weak self] in if self?.cutProgress != nil { self?.cutProgress = p } }
+            }) ?? []
+            clips.append(contentsOf: Self.pieces(of: clip, at: cuts))
+            cutMessage = cuts.isEmpty ? "" : "Bereich an \(cuts.count) Bildschnitt\(cuts.count == 1 ? "" : "en") geteilt."
+            cutProgress = nil
+        }
+    }
+
+    /// Teilt einen Clip an den angegebenen Quellbildern; Ausschnitt und Verfolgung gelten für alle Teile weiter.
+    static func pieces(of clip: Clip, at cuts: [Int]) -> [Clip] {
+        var out: [Clip] = [], cur = clip
+        for c in cuts.sorted() where c > cur.start && c < cur.end {
+            var next = cur
+            next.id = UUID(); next.start = c
+            cur.end = c
+            out.append(cur)
+            cur = next
+        }
+        out.append(cur)
+        return out
+    }
+
+    /// Clip und Quellbild unter der Abspielposition der Short-Zeitleiste – nur, wenn dort geteilt werden kann.
+    var splitPoint: (index: Int, frame: Int)? {
+        guard let i = clipIndex(atShortFrame: shortHead.frame) else { return nil }
+        let f = clips[i].start + shortHead.frame - shortStart(ofClip: i)
+        return f > clips[i].start && f < clips[i].end ? (i, f) : nil
+    }
+
+    func splitAtPlayhead() {
+        guard let p = splitPoint else { return }
+        shortPlayer.pause()
+        let parts = Self.pieces(of: clips[p.index], at: [p.frame])
+        clips.replaceSubrange(p.index...p.index, with: parts)
+    }
+
+    /// Zwei Teile, die im Original direkt aufeinander folgen, lassen sich wieder verbinden.
+    func canMerge(_ i: Int) -> Bool { i + 1 < clips.count && clips[i].end == clips[i + 1].start }
+
+    func merge(_ i: Int) {
+        guard canMerge(i) else { return }
+        var c = clips[i]
+        c.end = clips[i + 1].end
+        clips.replaceSubrange(i...(i + 1), with: [c])
+    }
+
+    func detectCutsInAllClips() {
+        guard let asset, !clips.isEmpty else { return }
+        let snapshot = clips, fd = frameDuration
+        let total = Double(max(1, snapshot.reduce(0) { $0 + $1.frames }))
+        cutProgress = 0; cutMessage = ""
+        Task {
+            var found: [UUID: [Int]] = [:]
+            var done = 0
+            for c in snapshot {
+                let base = Double(done), n = Double(c.frames)
+                found[c.id] = (try? await CutDetector.detect(asset: asset, start: c.start, frames: c.frames, frameDuration: fd) { p in
+                    Task { @MainActor [weak self] in if self?.cutProgress != nil { self?.cutProgress = (base + p * n) / total } }
+                }) ?? []
+                done += c.frames
+            }
+            // Auf den aktuellen Stand anwenden (Ausschnitte können sich inzwischen geändert haben)
+            let count = found.values.reduce(0) { $0 + $1.count }
+            if count > 0 { clips = clips.flatMap { Self.pieces(of: $0, at: found[$0.id] ?? []) } }
+            cutMessage = count == 0 ? "Keine weiteren Bildschnitte gefunden." : "\(count) Bildschnitt\(count == 1 ? "" : "e") gefunden – Clips geteilt."
+            cutProgress = nil
+        }
     }
 
     func loadThumb(_ clip: Clip) {
@@ -224,7 +309,14 @@ final class Project: ObservableObject {
 
     private func clipsChanged(old: [Clip]) {
         for c in clips where old.first(where: { $0.id == c.id })?.start != c.start { loadThumb(c) }
-        let structure = { (cs: [Clip]) in cs.map { "\($0.id)-\($0.start)-\($0.end)" } }
+        // Teilen und Verbinden ändern das Short nicht – nur echte Änderungen der Bildfolge zählen
+        let structure = { (cs: [Clip]) -> [Int] in
+            var r: [Int] = []
+            for c in cs where c.frames > 0 {
+                if let last = r.last, last == c.start { r[r.count - 1] = c.end } else { r += [c.start, c.end] }
+            }
+            return r
+        }
         if structure(old) != structure(clips) {
             if !words.isEmpty { subtitlesStale = true }
             if step != .select { Task { await rebuildShort() } }
@@ -347,14 +439,21 @@ final class Project: ObservableObject {
 
     // MARK: Schritt 4 – Vorschaubild
 
+    /// Vorschaubild-Einstellungen; vor dem ersten Besuch von Schritt 4 aus dem ersten Titel abgeleitet.
+    private var preparedThumb: ThumbnailSettings {
+        guard !thumbInitialized else { return thumb }
+        var t = thumb
+        if let title = titles.first(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            t.text = title.text; t.style = title.style; t.color = title.color; t.uppercase = title.uppercase
+        } else { t.text = "Dein *Titel*" }
+        t.frame = min(shortHead.frame, max(0, shortFrames - 1))
+        return t
+    }
+
     private func enterThumbnail() {
         if !thumbInitialized {
+            let t = preparedThumb
             thumbInitialized = true
-            var t = thumb
-            if let title = titles.first(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
-                t.text = title.text; t.style = title.style; t.color = title.color; t.uppercase = title.uppercase
-            } else { t.text = "Dein *Titel*" }
-            t.frame = min(shortHead.frame, max(0, shortFrames - 1))
             thumb = t
         } else {
             thumb.frame = min(thumb.frame, max(0, shortFrames - 1))
@@ -434,6 +533,55 @@ final class Project: ObservableObject {
         }
     }
 
+    // MARK: Übergabe an YT Producer
+
+    var defaultHandoffTitle: String {
+        if let t = titles.first(where: { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            return t.text.replacingOccurrences(of: "*", with: "").split(whereSeparator: \.isNewline).joined(separator: " ")
+        }
+        return url?.deletingPathExtension().lastPathComponent ?? "Short"
+    }
+
+    var canHandOffSubtitles: Bool { !cues.isEmpty && !subtitlesStale }
+
+    func handOffToProducer(show: String, title: String, text: String, quality: Exporter.Quality, hevc: Bool,
+                           withThumbnail: Bool, withSubtitles: Bool) {
+        guard let comp = composition else { return }
+        shortPlayer.pause()
+        let plan = ProducerHandoff.plan(show: show, title: title)
+        let snap = snapshot, fd = frameDuration, duration = Double(shortFrames) / fps
+        let cuesOut = withSubtitles && canHandOffSubtitles ? cues : []
+        let lang = language
+        let thumbSettings = preparedThumb, maker = thumbMaker, source = thumbSource(preparedThumb.frame)
+        exportProgress = 0; exportedURL = nil; handoffFolder = nil
+        exportTask = Task {
+            do {
+                let fm = FileManager.default
+                try fm.createDirectory(at: plan.clip.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try await Exporter.export(composition: comp, frameDuration: fd, snapshot: snap, quality: quality, hevc: hevc, to: plan.clip) { p in
+                    Task { @MainActor [weak self] in if self?.exportProgress != nil { self?.exportProgress = p * 0.97 } }
+                }
+                // Quellvideo = derselbe Film; ein fester Link kostet keinen Platz
+                if (try? fm.linkItem(at: plan.clip, to: plan.source)) == nil { try fm.copyItem(at: plan.clip, to: plan.source) }
+                var hasThumb = false
+                if withThumbnail, let maker, let r = source {
+                    try fm.createDirectory(at: plan.thumbnail.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    let cg = try await maker.render(clip: r.clip, sourceFrame: r.src, settings: thumbSettings)
+                    try ThumbnailMaker.write(cg, to: plan.thumbnail)
+                    hasThumb = true
+                }
+                try ProducerHandoff.writeProject(plan, text: text, duration: duration, hasThumbnail: hasThumb, cues: cuesOut, language: lang)
+                handoffFolder = plan.folder
+            } catch is CancellationError {
+                try? FileManager.default.removeItem(at: plan.folder)
+            } catch {
+                try? FileManager.default.removeItem(at: plan.folder)
+                errorMessage = "Die Übergabe an YT Producer ist fehlgeschlagen: \(error.localizedDescription)"
+            }
+            exportProgress = nil
+        }
+    }
+
     // MARK: Export
 
     func export(to url: URL, quality: Exporter.Quality, hevc: Bool) {
@@ -471,6 +619,8 @@ final class Project: ObservableObject {
         guard target > 1 else { return }
         step = .format
         while composition == nil { try? await Task.sleep(nanoseconds: 100_000_000) }
+        detectCutsInAllClips()
+        while cutProgress != nil || cutMessage.isEmpty { try? await Task.sleep(nanoseconds: 100_000_000) }
         clips[0].framing.mode = .track
         seek(s)
         guard target > 2 else { return }
@@ -479,6 +629,7 @@ final class Project: ObservableObject {
         if whisperAvailable && target == 3 { generateSubtitles() }
         seek(2 * s)
         guard target > 3 else { return }
+        if target == 5 { step = .format; exportToProducerFirst = true; showExportSheet = true; return }
         step = .thumbnail
         try? await Task.sleep(nanoseconds: 300_000_000)
         seek(Int(1.5 * Double(s)))

@@ -5,7 +5,26 @@ import AppKit
 
 /// Prüft die Bildkette ohne Oberfläche:  ShortMaker --selftest <video> <ausgabeordner> [ai] [whisper]
 enum SelfTest {
+    /// Schnitterkennung prüfen:  ShortMaker --selftest cuts <video> [von s] [dauer s]
+    static func cuts(_ args: [String]) async -> Int32 {
+        do {
+            let asset = AVURLAsset(url: URL(fileURLWithPath: args[0]), options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+            guard let vt = try await asset.loadTracks(withMediaType: .video).first else { return 1 }
+            let fd = Composer.frameDuration(fps: try await vt.load(.nominalFrameRate))
+            let fps = 1 / fd.seconds
+            let total = Int(try await asset.load(.duration).seconds * fps)
+            let from = args.count > 1 ? Int((Double(args[1]) ?? 0) * fps) : 0
+            let n = args.count > 2 ? min(total - from, Int((Double(args[2]) ?? 0) * fps)) : total - from
+            let t0 = Date()
+            let cuts = try await CutDetector.detect(asset: asset, start: from, frames: n, frameDuration: fd)
+            print(String(format: "%d Bilder in %.1f s", n, Date().timeIntervalSince(t0)))
+            print("Schnitte (s): " + cuts.map { String(format: "%.2f", Double($0) / fps) }.joined(separator: " "))
+            return 0
+        } catch { print("FEHLER: \(error)"); return 1 }
+    }
+
     static func run(_ args: [String]) async -> Int32 {
+        if args.first == "cuts" { return await cuts(Array(args.dropFirst())) }
         guard args.count >= 2 else { print("Aufruf: --selftest <video> <ausgabeordner> [ai] [whisper]"); return 2 }
         let out = URL(fileURLWithPath: args[1])
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
@@ -74,6 +93,16 @@ enum SelfTest {
                 let cg = try await maker.render(clip: a, sourceFrame: a.start + a.frames / 2, settings: ts)
                 try ThumbnailMaker.write(cg, to: out.appendingPathComponent("thumb-\(fmt.rawValue).jpg"))
                 print("Vorschaubild \(fmt.rawValue): \(cg.width)×\(cg.height) in \(String(format: "%.2f", Date().timeIntervalSince(t1))) s")
+            }
+            if let root = ProcessInfo.processInfo.environment["SHORTMAKER_PRODUCER_ROOT"] {
+                let plan = ProducerHandoff.plan(show: "Eigene Videos", title: "Test: Übergabe „Short“ äöü")
+                try FileManager.default.createDirectory(at: plan.clip.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: out.appendingPathComponent("short.mp4"), to: plan.clip)
+                try FileManager.default.linkItem(at: plan.clip, to: plan.source)
+                try FileManager.default.createDirectory(at: plan.thumbnail.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try FileManager.default.copyItem(at: out.appendingPathComponent("thumb-short.jpg"), to: plan.thumbnail)
+                try ProducerHandoff.writeProject(plan, text: "Beschreibung", duration: dur, hasThumbnail: true, cues: snap.cues, language: "de")
+                print("Übergabe nach \(root): \(plan.folder.path)")
             }
             let sug = await maker.suggest(clips: snap.clips.map { (start: $0.tlStart, clip: $0.clip) }, fps: fps, format: .short)
             print("Vorschläge (Bilder der Zeitleiste): \(sug)")

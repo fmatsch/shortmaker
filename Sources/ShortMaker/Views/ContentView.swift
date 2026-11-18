@@ -3,7 +3,6 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject var project: Project
-    @LocalState private var showExport = false
     @LocalState private var keyMonitor: Any?
 
     var body: some View {
@@ -11,7 +10,7 @@ struct ContentView: View {
             if project.url == nil {
                 DropZone()
             } else {
-                StepBar(showExport: $showExport)
+                StepBar(showExport: $project.showExportSheet)
                 Divider()
                 switch project.step {
                 case .select: SelectStep(head: project.sourceHead)
@@ -28,7 +27,7 @@ struct ContentView: View {
             }
             return true
         }
-        .sheet(isPresented: $showExport) { ExportSheet() }
+        .sheet(isPresented: $project.showExportSheet) { ExportSheet() }
         .alert("Hinweis", isPresented: Binding(get: { project.errorMessage != nil }, set: { if !$0 { project.errorMessage = nil } })) {
             Button("OK") { project.errorMessage = nil }
         } message: { Text(project.errorMessage ?? "") }
@@ -49,6 +48,7 @@ struct ContentView: View {
             case 34 where project.step == .select: project.setIn()
             case 31 where project.step == .select: project.setOut()
             case 36 where project.step == .select && project.canAddClip: project.addClip()
+            case 11 where project.step == .format: project.splitAtPlayhead()
             default: return event
             }
             return nil
@@ -116,42 +116,110 @@ struct ExportSheet: View {
     @Environment(\.dismiss) private var dismiss
     @LocalState private var quality: Exporter.Quality = .fast
     @LocalState private var hevc = false
+    @LocalState private var toProducer = false
+    @LocalState private var show = "Eigene Videos"
+    @LocalState private var title = ""
+    @LocalState private var text = ""
+    @LocalState private var withThumbnail = true
+    @LocalState private var withSubtitles = true
+    @LocalState private var shows: [String] = ["Eigene Videos"]
+
+    private var busy: Bool { project.exportProgress != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Short exportieren").font(.title2.weight(.semibold))
+            Picker("", selection: $toProducer) {
+                Text("Als Datei sichern").tag(false)
+                Text("An YT Producer übergeben").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().disabled(busy)
             Text("1080 × 1920, \(String(format: "%.2f", project.fps)) Bilder/s, \(Timecode.short(seconds: Double(project.shortFrames) / project.fps))")
                 .foregroundStyle(.secondary)
+
+            if toProducer { producerForm }
+
             Picker("Hochskalierung", selection: $quality) {
                 ForEach(Exporter.Quality.allCases) { q in Text(q.title).tag(q) }
             }
-            .pickerStyle(.radioGroup).disabled(project.exportProgress != nil)
+            .pickerStyle(.radioGroup).disabled(busy)
             if quality == .ai {
                 Text(AIUpscaler.isAvailable ? "Jeder Ausschnitt wird mit Real-ESRGAN vierfach vergrößert und dann auf 1080 × 1920 gebracht. Das dauert pro Bild etwa eine halbe bis ganze Sekunde."
                      : "Das Real-ESRGAN-Modell wurde nicht gefunden.")
                     .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            Toggle("HEVC (H.265) statt H.264 – kleinere Datei", isOn: $hevc).disabled(project.exportProgress != nil)
+            Toggle("HEVC (H.265) statt H.264 – kleinere Datei", isOn: $hevc).disabled(busy)
+
             if let p = project.exportProgress {
-                ProgressView(value: p) { Text("Wird exportiert … \(Int(p * 100)) %").monospacedDigit() }
-            } else if let done = project.exportedURL {
+                ProgressView(value: p) { Text("\(toProducer ? "Wird übergeben" : "Wird exportiert") … \(Int(p * 100)) %").monospacedDigit() }
+            } else if toProducer, let folder = project.handoffFolder {
+                Label("Projekt angelegt: \(folder.deletingLastPathComponent().lastPathComponent) › \(folder.lastPathComponent)", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text("In YT Producer unter „02 Projekte“ geht es weiter – Prüfung, Termin, Warteschlange. Ist YT Producer schon offen, dort auf „Aktualisieren“ klicken.").hint()
+            } else if !toProducer, let done = project.exportedURL {
                 Label("Gesichert: \(done.lastPathComponent)", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             }
+
             HStack {
-                if let done = project.exportedURL, project.exportProgress == nil {
-                    Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([done]) }
+                if !busy {
+                    if toProducer, let folder = project.handoffFolder {
+                        Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                        if ProducerHandoff.appURL != nil { Button("YT Producer öffnen") { ProducerHandoff.openProducer() } }
+                    } else if !toProducer, let done = project.exportedURL {
+                        Button("Im Finder zeigen") { NSWorkspace.shared.activateFileViewerSelecting([done]) }
+                    }
                 }
                 Spacer()
-                if project.exportProgress != nil {
+                if busy {
                     Button("Abbrechen") { project.cancelExport() }
                 } else {
                     Button("Schließen") { dismiss() }.keyboardShortcut(.cancelAction)
-                    Button("Sichern …") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
-                        .disabled(quality == .ai && !AIUpscaler.isAvailable)
+                    if toProducer {
+                        Button("Übergeben") {
+                            project.handOffToProducer(show: show, title: title.trimmingCharacters(in: .whitespacesAndNewlines), text: text,
+                                                      quality: quality, hevc: hevc, withThumbnail: withThumbnail, withSubtitles: withSubtitles)
+                        }
+                        .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                        .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (quality == .ai && !AIUpscaler.isAvailable))
+                    } else {
+                        Button("Sichern …") { save() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                            .disabled(quality == .ai && !AIUpscaler.isAvailable)
+                    }
                 }
             }
         }
-        .padding(24).frame(width: 460)
+        .padding(24).frame(width: 500)
+        .onAppear {
+            if project.exportToProducerFirst { toProducer = true; project.exportToProducerFirst = false }
+            shows = ProducerHandoff.shows()
+            if title.isEmpty { title = project.defaultHandoffTitle }
+            withSubtitles = project.canHandOffSubtitles
+        }
+    }
+
+    @ViewBuilder private var producerForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if ProducerHandoff.appURL == nil {
+                Label("YT Producer ist auf diesem Mac nicht installiert – das Projekt wird trotzdem angelegt.", systemImage: "exclamationmark.triangle")
+                    .font(.callout).foregroundStyle(.orange)
+            }
+            Picker("Sendung", selection: $show) { ForEach(shows, id: \.self) { Text($0).tag($0) } }
+            HStack { Text("Titel"); TextField("", text: $title).textFieldStyle(.roundedBorder) }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Beschreibung").font(.callout)
+                TextEditor(text: $text)
+                    .font(.body).frame(height: 70).scrollContentBackground(.hidden).padding(4)
+                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.quaternary))
+            }
+            Toggle("Vorschaubild mitgeben (aus Schritt 4)", isOn: $withThumbnail)
+            Toggle("Untertitel als Transkript mitgeben", isOn: $withSubtitles).disabled(!project.canHandOffSubtitles)
+            if !project.canHandOffSubtitles {
+                Text(project.cues.isEmpty ? "Es gibt noch keine Untertitel – YT Producer kann das Transkript selbst erzeugen." : "Die Untertitel passen nicht mehr zu den Clips – bitte in Schritt 3 neu erzeugen.").hint()
+            }
+            Text("Wird als Short ohne Vor- und Abspann in „ON Downloads › \(show) › \(ProducerHandoff.folderName(title))“ angelegt.").hint()
+        }
+        .disabled(busy)
     }
 
     private func save() {

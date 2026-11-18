@@ -128,7 +128,17 @@ struct ClipList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Clips für das Short").font(.headline).padding(14)
+            Text("Clips für das Short").font(.headline).padding([.horizontal, .top], 14)
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("An Bildschnitten automatisch teilen", isOn: $project.autoSplit)
+                    .help("Beim Übernehmen wird der Bereich an jedem Wechsel der Einstellung in einzelne Clips geteilt.")
+                if let p = project.cutProgress {
+                    ProgressView(value: p) { Text("Bildschnitte werden gesucht …").font(.caption) }
+                } else if !project.cutMessage.isEmpty {
+                    Text(project.cutMessage).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 14).padding(.bottom, 10)
             if project.clips.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Zum Anfang der Stelle fahren, **I** drücken", systemImage: "1.circle")

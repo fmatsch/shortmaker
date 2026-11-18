@@ -60,6 +60,24 @@ struct FramingInspector: View {
                 Button(role: .destructive) { project.clips.remove(at: index) } label: { Image(systemName: "trash") }.help("Clip entfernen")
             }
 
+            SectionBox(title: "Schnitt") {
+                HStack {
+                    Button { project.splitAtPlayhead() } label: { Label("Hier teilen", systemImage: "scissors") }
+                        .disabled(project.splitPoint == nil).help("Clip an der aktuellen Stelle teilen (B)")
+                    Spacer()
+                    Button { project.merge(index) } label: { Label("Verbinden", systemImage: "link") }
+                        .disabled(!project.canMerge(index)).help("Mit dem nächsten Clip wieder zusammenfügen – nur bei direkt aufeinanderfolgenden Teilen")
+                }
+                Button { project.detectCutsInAllClips() } label: { Label("Bildschnitte in allen Clips erkennen", systemImage: "wand.and.stars") }
+                    .disabled(project.cutProgress != nil)
+                if let p = project.cutProgress {
+                    ProgressView(value: p) { Text("Bildschnitte werden gesucht …").font(.callout) }
+                } else if !project.cutMessage.isEmpty {
+                    Text(project.cutMessage).hint()
+                }
+                Text("Wechselt im Material die Einstellung, teil den Clip dort – jeder Teil bekommt seinen eigenen Ausschnitt.").hint()
+            }
+
             SectionBox(title: "Ausschnitt") {
                 Picker("", selection: framing.mode) {
                     ForEach(FramingMode.allCases) { Text($0.title).tag($0) }
